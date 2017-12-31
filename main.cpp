@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <sys/time.h>
 #include <set>
 
 using namespace std;
@@ -16,7 +17,13 @@ const size_t BKDRHash(const char *str) {
 	return hash;
 }
 
-const string paths[] = {"百度买房语料", "网易新闻语料", "网易新闻语料20171122"};
+const long currentTime() {
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  return tv.tv_sec * 1000L + tv.tv_usec / 1000L;
+}
+
+const string paths[] = {"百度买房语料", "网易新闻语料", "网易新闻语料20171122", "一般词全集语料", "一般词全集语料1", "一般词全集语料2", "一般词全集语料3", "一般词全集语料4", "一般词全集语料5"};
 
 void merge(set<size_t> *sentences, const string in_path, const string out_path) {
   cout << "输入文件：" << in_path << "，输出文件：" << out_path << endl;
@@ -41,13 +48,17 @@ void merge(set<size_t> *sentences, const string in_path, const string out_path) 
 }
 
 int main(int argc, char** argv) {
+  const long begin = currentTime();
+
 	auto *sentences = new set<size_t>();
-  const string out_path = "所有去重.unique.txt";
+  const string out_url = "所有去重.unique.txt";
 
 	Path path(false);
 	path.pushDirectory(".");
 	path.pushDirectory("assets");
+  path.setFileName(out_url);
 
+  const string out_path(path.makeAbsolute().toString());
   for (int i=0, m=sizeof(paths)/sizeof(string); i<m; i++) {
     const string p = paths[i];
     path.setFileName(p + ".grouped.txt");
@@ -55,6 +66,12 @@ int main(int argc, char** argv) {
 
     merge(sentences, in_path, out_path);
   }
+
+  delete sentences;
+
+  const long end = currentTime();
+
+  cout << "合并所有文件耗时：" << end - begin << " 毫秒。" << endl;
 
   return EXIT_SUCCESS;
 }
