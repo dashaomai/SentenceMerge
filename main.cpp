@@ -25,14 +25,11 @@ const long currentTime() {
 
 const string paths[] = {"百度买房语料", "网易新闻语料", "网易新闻语料20171122", "一般词全集语料", "一般词全集语料1", "一般词全集语料2", "一般词全集语料3", "一般词全集语料4", "一般词全集语料5"};
 
-void merge(set<size_t> *sentences, const string in_path, const string out_path) {
-  cout << "输入文件：" << in_path << "，输出文件：" << out_path << endl;
+void merge(set<size_t> *sentences, const string &in_path, ofstream &out) {
+  cout << "输入文件：" << in_path << endl;
 
   ifstream in;
   in.open(in_path, ios_base::in);
-
-  ofstream out;
-  out.open(out_path, ios_base::out);
 
   string buffer;
   while (getline(in, buffer)) {
@@ -43,7 +40,6 @@ void merge(set<size_t> *sentences, const string in_path, const string out_path) 
     }
   }
 
-  out.close();
   in.close();
 }
 
@@ -59,19 +55,24 @@ int main(int argc, char** argv) {
   path.setFileName(out_url);
 
   const string out_path(path.makeAbsolute().toString());
+  ofstream out;
+  out.open(out_path, ios_base::out);
+
   for (int i=0, m=sizeof(paths)/sizeof(string); i<m; i++) {
     const string p = paths[i];
     path.setFileName(p + ".grouped.txt");
     const string in_path(path.makeAbsolute().toString());
 
-    merge(sentences, in_path, out_path);
+    merge(sentences, in_path, out);
   }
+
+  out.close();
 
   delete sentences;
 
   const long end = currentTime();
 
-  cout << "合并所有文件耗时：" << end - begin << " 毫秒。" << endl;
+  cout << "合并所有文件到：" << out_path << "，耗时：" << end - begin << " 毫秒。" << endl;
 
   return EXIT_SUCCESS;
 }
