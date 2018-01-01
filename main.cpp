@@ -8,7 +8,7 @@
 using namespace std;
 using Poco::Path;
 
-const size_t BKDRHash(const char *str) {
+inline const size_t BKDRHash(const char *str) {
 	size_t hash = 0;
 	while (const auto ch = (size_t)*str++) {
 		hash = hash * 131 + ch;
