@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
 
 	const Int64 end = currentTime();
 
-	cout << "合并所有文件到：" << out_path << "，耗时：" << end - begin << " 毫秒。" << endl;
+	cout << "合并所有文件到：" << out_path << "，耗时：" << end - begin << " 微秒。" << endl;
 
 	return EXIT_SUCCESS;
 }
