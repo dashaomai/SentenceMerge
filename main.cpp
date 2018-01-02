@@ -1,12 +1,13 @@
-#include "Poco/Path.h"
+﻿#include "Poco/Path.h"
+#include "Poco/Timestamp.h"
 
 #include <iostream>
 #include <fstream>
-#include <sys/time.h>
 #include <set>
 
 using namespace std;
 using Poco::Path;
+using Poco::Int64;
 
 inline const size_t BKDRHash(const char *str) {
 	size_t hash = 0;
@@ -17,10 +18,9 @@ inline const size_t BKDRHash(const char *str) {
 	return hash;
 }
 
-const long currentTime() {
-  struct timeval tv;
-  gettimeofday(&tv, NULL);
-  return tv.tv_sec * 1000L + tv.tv_usec / 1000L;
+const Int64 currentTime() {
+	Poco::Timestamp now;
+	return now.epochMicroseconds();
 }
 
 const string paths[] = {"百度买房语料", "网易新闻语料", "网易新闻语料20171122", "一般词全集语料", "一般词全集语料1", "一般词全集语料2", "一般词全集语料3", "一般词全集语料4", "一般词全集语料5"};
@@ -44,7 +44,7 @@ void merge(set<size_t> *sentences, const string &in_path, ofstream &out) {
 }
 
 int main(int argc, char** argv) {
-  const long begin = currentTime();
+  const Int64 begin = currentTime();
 
 	auto *sentences = new set<size_t>();
   const string out_url = "所有去重.unique.txt";
@@ -70,7 +70,7 @@ int main(int argc, char** argv) {
 
   delete sentences;
 
-  const long end = currentTime();
+  const Int64 end = currentTime();
 
   cout << "合并所有文件到：" << out_path << "，耗时：" << end - begin << " 毫秒。" << endl;
 
