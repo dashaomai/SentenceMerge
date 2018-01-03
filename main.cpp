@@ -45,35 +45,63 @@ class LineNotification : public Notification {
 
 class MergeWorker : public Runnable {
   public:
-    MergeWorker(NotificationQueue *queue, set<size_t> *sentences) : _queue(queue), _sentences(sentences) {}
+    MergeWorker(
+			NotificationQueue *in_queue,
+			NotificationQueue *out_queue,
+			set<size_t> *sentences
+		) : _in_queue(in_queue), _out_queue(out_queue), _sentences(sentences) {}
 
     void run() {
       // while((Notification *notification = _queue.waitDequeueNotification()) != NULL) {
       cout << "进入线程：" << Poco::Thread::current()->name() << endl;
 
-      for (Notification *notification = _queue->waitDequeueNotification();
-          NULL != notification; notification = _queue->waitDequeueNotification()) {
+      for (Notification *notification = _in_queue->waitDequeueNotification();
+          NULL != notification; notification = _in_queue->waitDequeueNotification()) {
         LineNotification *pLN = (LineNotification*)notification;
         if (NULL != pLN) {
           const auto pChar = pLN->getLine()->c_str();
           const auto hash = BKDRHash(pChar);
           if (_sentences->insert(hash).second) {
-            cout << pChar << endl;
+            _out_queue->enqueueNotification(notification);
           }
-        }
-
-        notification->release();
+				}
+				else {
+					notification->release();
+				}
       }
     }
 
   private:
-    NotificationQueue *_queue;
+    NotificationQueue *_in_queue;
+		NotificationQueue *_out_queue;
     set<size_t> *_sentences;
+};
+
+class WriterWorker : public Runnable {
+public:
+	WriterWorker(NotificationQueue *queue, ofstream &out) : _queue(queue), _out(out) {}
+
+	void run() {
+		cout << "进入线程：" << Poco::Thread::current()->name() << endl;
+
+		for (Notification *notification = _queue->waitDequeueNotification();
+			NULL != notification; notification = _queue->waitDequeueNotification()) {
+			LineNotification *pLN = (LineNotification*)notification;
+
+			if (NULL != pLN) _out << *(pLN->getLine()) << endl;
+
+			notification->release();
+		}
+	}
+
+private:
+	NotificationQueue *_queue;
+	ofstream &_out;
 };
 
 const string paths[] = { "百度买房语料", "网易新闻语料", "网易新闻语料20171122", "一般词全集语料", "一般词全集语料1", "一般词全集语料2", "一般词全集语料3", "一般词全集语料4", "一般词全集语料5" };
 
-void merge(NotificationQueue *queue, set<size_t> *sentences, const string &in_path, ofstream &out) {
+void merge(NotificationQueue *queue, set<size_t> *sentences, const string &in_path) {
 	cout << "输入文件：" << in_path << endl;
 
 	ifstream in;
@@ -81,12 +109,6 @@ void merge(NotificationQueue *queue, set<size_t> *sentences, const string &in_pa
 
 	string *buffer = new string;
 	while (getline(in, *buffer)) {
-		/*const auto str = buffer.c_str();
-		const auto hash = BKDRHash(str);
-		if (sentences->insert(hash).second) {
-			out << str << endl;
-		}*/
-
     queue->enqueueNotification(new LineNotification(buffer));
 	}
 
@@ -102,14 +124,6 @@ int main(int argc, char** argv) {
 	const Int64 begin = currentTime();
 	auto *sentences = new set<size_t>();
 
-  NotificationQueue *queue = new NotificationQueue;
-
-  MergeWorker worker1(queue, sentences);
-  MergeWorker worker2(queue, sentences);
-
-  ThreadPool::defaultPool().start(worker1);
-  ThreadPool::defaultPool().start(worker2);
-
 	const string out_url = "所有去重.unique.txt";
 
 	Path path(false);
@@ -121,24 +135,46 @@ int main(int argc, char** argv) {
 	ofstream out;
 	out.open(out_path, ios_base::out);
 
+  NotificationQueue *in_queue = new NotificationQueue;
+	NotificationQueue *out_queue = new NotificationQueue;
+
+  MergeWorker worker1(in_queue, out_queue, sentences);
+  MergeWorker worker2(in_queue, out_queue, sentences);
+	MergeWorker worker3(in_queue, out_queue, sentences);
+	MergeWorker worker4(in_queue, out_queue, sentences);
+
+	WriterWorker writer(out_queue, out);
+
+  ThreadPool::defaultPool().start(worker1);
+  ThreadPool::defaultPool().start(worker2);
+	ThreadPool::defaultPool().start(worker3);
+	ThreadPool::defaultPool().start(worker4);
+
+	ThreadPool::defaultPool().start(writer);
+
 	for (int i = 0, m = sizeof(paths) / sizeof(string); i < m; i++) {
 		const string p = paths[i];
 		path.setFileName(p + ".grouped.txt");
 		const string in_path(path.makeAbsolute().toString());
 
-		merge(queue, sentences, in_path, out);
+		merge(in_queue, sentences, in_path);
 	}
 
 	out.close();
 
 	delete sentences;
 
-  while (!queue->empty()) {
-    cout << "Wait for all merged." << endl;
-    Poco::Thread::sleep(100);
+  while (!in_queue->empty()) {
+    cout << "等待合并队列结束。" << endl;
+    Poco::Thread::sleep(500);
   }
 
-  delete queue;
+	while (!out_queue->empty()) {
+		cout << "等待写入队列结束。" << endl;
+		Poco::Thread::sleep(500);
+	}
+
+  delete in_queue;
 
 	const Int64 end = currentTime();
 
