@@ -43,10 +43,10 @@ class LineNotification : public Notification {
       return _line;
     }
 
-protected:
-	~LineNotification() {
-		delete _line;
-	}
+  protected:
+    ~LineNotification() {
+      delete _line;
+    }
 
   private:
     const string *_line;
@@ -72,7 +72,8 @@ class MergeWorker : public Runnable {
           const auto pChar = pLN->getLine()->c_str();
           const auto hash = BKDRHash(pChar);
 
-					Poco::ScopedReadRWLock read_lock(_rw_lock);
+          // 因为 _sentences 集合只添加不减少，所以可以取消这个只读锁
+					// Poco::ScopedReadRWLock read_lock(_rw_lock);
 
 					// 如果要查询的 hash 值不存在，则添加
 					auto search = _sentences->find(hash);
@@ -83,17 +84,18 @@ class MergeWorker : public Runnable {
 						// 使用写入锁重新判断要查询的 hash 值不存在
 						if (_sentences->insert(hash).second) {
 							_out_queue->enqueueNotification(notification);
-						}
-						else {
-							notification->release();
-						}
 
-					}
+              // 如果 notification 被重新放入 _out_queue，
+              // 则用 continue 跳转到下一轮 for 循环，
+              // 不需要先 notification->release()
+              continue;
+            }
+          }
+				}
 
-				}
-				else {
-					notification->release();
-				}
+        // 只有 notification 没有被重新放入 _out_queue 时，
+        // 就需要在这里直接释放
+        notification->release();
       }
     }
 
@@ -105,25 +107,25 @@ class MergeWorker : public Runnable {
 };
 
 class WriterWorker : public Runnable {
-public:
-	WriterWorker(NotificationQueue *queue, ofstream &out) : _queue(queue), _out(out) {}
+  public:
+    WriterWorker(NotificationQueue *queue, ofstream &out) : _queue(queue), _out(out) {}
 
-	void run() {
-		cout << "进入线程：" << Poco::Thread::current()->name() << endl;
+    void run() {
+      cout << "进入线程：" << Poco::Thread::current()->name() << endl;
 
-		for (Notification *notification = _queue->waitDequeueNotification();
-			NULL != notification; notification = _queue->waitDequeueNotification()) {
-			LineNotification *pLN = (LineNotification*)notification;
+      for (Notification *notification = _queue->waitDequeueNotification();
+        NULL != notification; notification = _queue->waitDequeueNotification()) {
+        LineNotification *pLN = (LineNotification*)notification;
 
-			if (NULL != pLN) _out << *(pLN->getLine()) << '\n';
+        if (NULL != pLN) _out << *(pLN->getLine()) << '\n';
 
-			notification->release();
-		}
-	}
+        notification->release();
+      }
+    }
 
-private:
-	NotificationQueue *_queue;
-	ofstream &_out;
+  private:
+    NotificationQueue *_queue;
+    ofstream &_out;
 };
 
 const string paths[] = { "百度买房语料", "网易新闻语料"/*, "网易新闻语料20171122", "一般词全集语料", "一般词全集语料1", "一般词全集语料2", "一般词全集语料3", "一般词全集语料4", "一般词全集语料5" */};
