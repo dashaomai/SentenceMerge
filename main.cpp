@@ -6,6 +6,11 @@
 #include "Poco/RWLock.h"
 #include "Poco/Runnable.h"
 
+#include "Poco/Logger.h"
+#include "Poco/AsyncChannel.h"
+#include "Poco/ConsoleChannel.h"
+#include "Poco/AutoPtr.h"
+
 #include <iostream>
 #include <fstream>
 #include <set>
@@ -18,6 +23,13 @@ using Poco::NotificationQueue;
 using Poco::ThreadPool;
 using Poco::RWLock;
 using Poco::Runnable;
+
+using Poco::Logger;
+using Poco::AsyncChannel;
+using Poco::ConsoleChannel;
+using Poco::AutoPtr;
+
+static Logger* log;
 
 inline const size_t BKDRHash(const char *str) {
 	size_t hash = 0;
@@ -150,6 +162,12 @@ void merge(NotificationQueue *queue, set<size_t> *sentences, const string &in_pa
 }
 
 int main(int argc, char** argv) {
+  AutoPtr<ConsoleChannel> pCons(new ConsoleChannel);
+  AutoPtr<AsyncChannel> pAsync(new AsyncChannel(pCons));
+  Logger::root().setChannel(pAsync);
+
+  log = &(Logger::get("SentenceMerge"));
+
 	const Int64 begin = currentTime();
 	auto *sentences = new set<size_t>();
 
