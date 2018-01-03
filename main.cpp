@@ -3,6 +3,7 @@
 #include "Poco/Notification.h"
 #include "Poco/NotificationQueue.h"
 #include "Poco/ThreadPool.h"
+#include "Poco/RWLock.h"
 #include "Poco/Runnable.h"
 
 #include <iostream>
@@ -15,6 +16,7 @@ using Poco::Int64;
 using Poco::Notification;
 using Poco::NotificationQueue;
 using Poco::ThreadPool;
+using Poco::RWLock;
 using Poco::Runnable;
 
 inline const size_t BKDRHash(const char *str) {
@@ -33,11 +35,18 @@ const Int64 currentTime() {
 
 class LineNotification : public Notification {
   public:
-    LineNotification(const string *line) : _line(line) {}
+    LineNotification(const string &line) {
+			_line = new const string(line);
+		}
 
     const string* getLine() const {
       return _line;
     }
+
+protected:
+	~LineNotification() {
+		delete _line;
+	}
 
   private:
     const string *_line;
@@ -48,8 +57,9 @@ class MergeWorker : public Runnable {
     MergeWorker(
 			NotificationQueue *in_queue,
 			NotificationQueue *out_queue,
-			set<size_t> *sentences
-		) : _in_queue(in_queue), _out_queue(out_queue), _sentences(sentences) {}
+			set<size_t> *sentences,
+			RWLock &rw_lock
+		) : _in_queue(in_queue), _out_queue(out_queue), _sentences(sentences), _rw_lock(rw_lock) {}
 
     void run() {
       // while((Notification *notification = _queue.waitDequeueNotification()) != NULL) {
@@ -61,9 +71,25 @@ class MergeWorker : public Runnable {
         if (NULL != pLN) {
           const auto pChar = pLN->getLine()->c_str();
           const auto hash = BKDRHash(pChar);
-          if (_sentences->insert(hash).second) {
-            _out_queue->enqueueNotification(notification);
-          }
+
+					Poco::ScopedReadRWLock read_lock(_rw_lock);
+
+					// 如果要查询的 hash 值不存在，则添加
+					auto search = _sentences->find(hash);
+					auto end = _sentences->end();
+					if (search == end) {
+						Poco::ScopedWriteRWLock write_lock(_rw_lock);
+
+						// 使用写入锁重新判断要查询的 hash 值不存在
+						if (_sentences->insert(hash).second) {
+							_out_queue->enqueueNotification(notification);
+						}
+						else {
+							notification->release();
+						}
+
+					}
+
 				}
 				else {
 					notification->release();
@@ -75,6 +101,7 @@ class MergeWorker : public Runnable {
     NotificationQueue *_in_queue;
 		NotificationQueue *_out_queue;
     set<size_t> *_sentences;
+		RWLock &_rw_lock;
 };
 
 class WriterWorker : public Runnable {
@@ -88,7 +115,7 @@ public:
 			NULL != notification; notification = _queue->waitDequeueNotification()) {
 			LineNotification *pLN = (LineNotification*)notification;
 
-			if (NULL != pLN) _out << *(pLN->getLine()) << endl;
+			if (NULL != pLN) _out << *(pLN->getLine()) << '\n';
 
 			notification->release();
 		}
@@ -99,7 +126,7 @@ private:
 	ofstream &_out;
 };
 
-const string paths[] = { "百度买房语料", "网易新闻语料", "网易新闻语料20171122", "一般词全集语料", "一般词全集语料1", "一般词全集语料2", "一般词全集语料3", "一般词全集语料4", "一般词全集语料5" };
+const string paths[] = { "百度买房语料", "网易新闻语料"/*, "网易新闻语料20171122", "一般词全集语料", "一般词全集语料1", "一般词全集语料2", "一般词全集语料3", "一般词全集语料4", "一般词全集语料5" */};
 
 void merge(NotificationQueue *queue, set<size_t> *sentences, const string &in_path) {
 	cout << "输入文件：" << in_path << endl;
@@ -107,8 +134,8 @@ void merge(NotificationQueue *queue, set<size_t> *sentences, const string &in_pa
 	ifstream in;
 	in.open(in_path, ios_base::in);
 
-	string *buffer = new string;
-	while (getline(in, *buffer)) {
+	string buffer;
+	while (getline(in, buffer)) {
     queue->enqueueNotification(new LineNotification(buffer));
 	}
 
@@ -124,6 +151,8 @@ int main(int argc, char** argv) {
 	const Int64 begin = currentTime();
 	auto *sentences = new set<size_t>();
 
+	RWLock rw_lock;
+
 	const string out_url = "所有去重.unique.txt";
 
 	Path path(false);
@@ -138,17 +167,17 @@ int main(int argc, char** argv) {
   NotificationQueue *in_queue = new NotificationQueue;
 	NotificationQueue *out_queue = new NotificationQueue;
 
-  MergeWorker worker1(in_queue, out_queue, sentences);
-  MergeWorker worker2(in_queue, out_queue, sentences);
-	MergeWorker worker3(in_queue, out_queue, sentences);
-	MergeWorker worker4(in_queue, out_queue, sentences);
+  MergeWorker worker1(in_queue, out_queue, sentences, rw_lock);
+  MergeWorker worker2(in_queue, out_queue, sentences, rw_lock);
+	/*MergeWorker worker3(in_queue, out_queue, sentences);
+	MergeWorker worker4(in_queue, out_queue, sentences);*/
 
 	WriterWorker writer(out_queue, out);
 
   ThreadPool::defaultPool().start(worker1);
   ThreadPool::defaultPool().start(worker2);
-	ThreadPool::defaultPool().start(worker3);
-	ThreadPool::defaultPool().start(worker4);
+	/*ThreadPool::defaultPool().start(worker3);
+	ThreadPool::defaultPool().start(worker4);*/
 
 	ThreadPool::defaultPool().start(writer);
 
@@ -168,13 +197,18 @@ int main(int argc, char** argv) {
     cout << "等待合并队列结束。" << endl;
     Poco::Thread::sleep(500);
   }
+	in_queue->wakeUpAll();
 
 	while (!out_queue->empty()) {
 		cout << "等待写入队列结束。" << endl;
 		Poco::Thread::sleep(500);
 	}
+	out_queue->wakeUpAll();
 
-  delete in_queue;
+	ThreadPool::defaultPool().joinAll();
+
+	delete in_queue;
+	delete out_queue;
 
 	const Int64 end = currentTime();
 
