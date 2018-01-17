@@ -7,9 +7,13 @@
 	mkdir build && cd build
 	conan install .. --build missing
 	
-	# Linux, Mac
+	# Linux, Mac 使用 GNU Make
 	cmake .. -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
 	cmake --bulid .
+	
+	# Linux, Mac 使用 Ninja（便宜速度快，优先使用并发编译）
+	cmake .. =G "Ninja"
+	cmake -- build .
 	
 	# Windows VS 2017
 	cmake .. -G "Visual Studio 15 Win64"
